@@ -10,7 +10,7 @@ use crate::requests::{
     GetEventRequest, GetLabelsRequest, GetLatestEventRequest, LogoutRequest, TFAStatus,
     TOTPRequest, UserAuth, UserInfoRequest,
 };
-use go_srp::SRPAuth;
+use proton_srp::{SRPAuth, SRPProofB64};
 use secrecy::{ExposeSecret, Secret};
 use std::sync::Arc;
 
@@ -156,10 +156,10 @@ impl Session {
 }
 
 fn validate_server_proof(
-    proof: &SRPAuth,
+    proof: &SRPProofB64,
     auth_response: AuthResponse,
 ) -> Result<SessionType, LoginError> {
-    if proof.expected_server_proof != auth_response.server_proof {
+    if !proof.compare_server_proof(&auth_response.server_proof) {
         return Err(LoginError::ServerProof(
             "Server Proof does not match".to_string(),
         ));
@@ -196,7 +196,7 @@ struct State<'a> {
 
 struct LoginState<'a> {
     username: &'a str,
-    proof: SRPAuth,
+    proof: SRPProofB64,
     session: String,
     hv: Option<HumanVerificationLoginData>,
 }
@@ -205,15 +205,20 @@ fn generate_login_state(
     state: State,
     auth_info_response: AuthInfoResponse,
 ) -> Result<LoginState, LoginError> {
-    let proof = SRPAuth::generate(
-        state.username,
+    // Create SRP auth and generate proofs using pure Rust proton-srp
+    let srp_auth = SRPAuth::with_pgp(
         state.password.expose_secret(),
-        auth_info_response.version,
+        auth_info_response.version as u8,
         &auth_info_response.salt,
         &auth_info_response.modulus,
         &auth_info_response.server_ephemeral,
     )
-    .map_err(LoginError::ServerProof)?;
+    .map_err(|e| LoginError::SRPProof(e.to_string()))?;
+
+    let proof: SRPProofB64 = srp_auth
+        .generate_proofs()
+        .map_err(|e| LoginError::SRPProof(e.to_string()))?
+        .into();
 
     Ok(LoginState {
         username: state.username,

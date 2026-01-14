@@ -12,7 +12,8 @@ keywords = ["proton", "rest", "api"]
 categories = ["api-bindings"]
 
 [dependencies]
-go-srp = {path = "go-srp", version = "0.1.6"}
+# Pure Rust SRP implementation from official proton-crypto-rs
+proton-srp = { git = "https://github.com/ProtonMail/proton-crypto-rs", features = ["pgpinternal"] }
 thiserror = "1"
 serde = {version ="1", features=["derive"]}
 serde_repr = "0.1"
