@@ -90,3 +90,35 @@ impl FromResponse for StringResponse {
         Ok(String::from_utf8_lossy(body.as_ref()).to_string())
     }
 }
+
+/// Response type for binary data (e.g., attachments).
+/// Returns raw bytes without any parsing.
+#[derive(Copy, Clone)]
+pub struct BinaryResponse {}
+
+impl FromResponse for BinaryResponse {
+    type Output = Vec<u8>;
+
+    fn from_response_sync<R: ResponseBodySync>(response: R) -> Result<Self::Output> {
+        let body = response.get_body()?;
+        Ok(body.as_ref().to_vec())
+    }
+
+    #[cfg(not(feature = "async-traits"))]
+    fn from_response_async<R: ResponseBodyAsync + 'static>(
+        response: R,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Output>>>> {
+        Box::pin(async move {
+            let body = response.get_body_async().await?;
+            Ok(body.as_ref().to_vec())
+        })
+    }
+
+    #[cfg(feature = "async-traits")]
+    async fn from_response_async<R: ResponseBodyAsync + 'static>(
+        response: R,
+    ) -> Result<Self::Output> {
+        let body = response.get_body_async().await?;
+        Ok(body.as_ref().to_vec())
+    }
+}

@@ -92,12 +92,19 @@ pub struct Key {
     pub flags: Option<KeyState>,
 }
 
-#[derive(Deserialize_repr, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Deserialize_repr, serde::Serialize, Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
+#[serde(into = "u8")]
 pub enum KeyState {
     None = 0,
     Trusted = 1,
     Active = 2,
+}
+
+impl From<KeyState> for u8 {
+    fn from(state: KeyState) -> u8 {
+        state as u8
+    }
 }
 
 /// Deserialize bool from integer

@@ -2,15 +2,19 @@
 
 mod event;
 mod human_verification;
+mod keys;
 mod labels;
+mod message;
 mod user;
 
 pub use event::*;
 pub use human_verification::*;
+pub use keys::*;
 pub use labels::*;
+pub use message::*;
 pub use user::*;
 
-use serde_repr::Deserialize_repr;
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::fmt::{Display, Formatter};
 
 pub type SecretString = secrecy::SecretString;
@@ -34,7 +38,7 @@ impl Display for TwoFactorAuth {
     }
 }
 
-#[derive(Debug, Deserialize_repr, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Deserialize_repr, Serialize_repr, Eq, PartialEq, Copy, Clone)]
 #[repr(u8)]
 pub enum Boolean {
     False = 0,

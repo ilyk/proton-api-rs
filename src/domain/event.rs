@@ -1,5 +1,5 @@
 use crate::domain::{Boolean, Label, LabelId};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_repr::Deserialize_repr;
 use std::fmt::{Display, Formatter};
 
@@ -40,8 +40,8 @@ pub enum EventAction {
 }
 
 /// Message API ID.
-#[derive(Debug, Deserialize, Eq, PartialEq, Hash, Clone)]
-pub struct MessageId(String);
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Hash, Clone)]
+pub struct MessageId(pub String);
 
 impl Display for MessageId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

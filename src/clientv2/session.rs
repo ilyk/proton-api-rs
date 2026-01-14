@@ -1,14 +1,15 @@
 use crate::clientv2::TotpSession;
 use crate::domain::{
-    Event, EventId, HumanVerification, HumanVerificationLoginData, Label, LabelType, SecretString,
-    TwoFactorAuth, User, UserUid,
+    AddressId, Event, EventId, HumanVerification, HumanVerificationLoginData, Keys, Label,
+    LabelType, PublicKeys, RecipientType, SecretString, TwoFactorAuth, User, UserUid,
 };
 use crate::http;
 use crate::http::{OwnedRequest, RequestDesc, Sequence, SequenceFromState, X_PM_UID_HEADER};
 use crate::requests::{
-    AuthInfoRequest, AuthInfoResponse, AuthRefreshRequest, AuthRequest, AuthResponse,
-    GetEventRequest, GetLabelsRequest, GetLatestEventRequest, LogoutRequest, TFAStatus,
-    TOTPRequest, UserAuth, UserInfoRequest,
+    AddressKeys, AuthInfoRequest, AuthInfoResponse, AuthRefreshRequest, AuthRequest, AuthResponse,
+    GetAddressKeysRequest, GetAllKeysRequest, GetEventRequest, GetLabelsRequest,
+    GetLatestEventRequest, GetPublicKeysRequest, GetUserKeysRequest, LogoutRequest, TFAStatus,
+    TOTPRequest, UserAuth, UserInfoRequest, UserKeys,
 };
 use proton_srp::{SRPAuth, SRPProofB64};
 use secrecy::{ExposeSecret, Secret};
@@ -144,6 +145,194 @@ impl Session {
         //    .map(|r| Ok(r.labels))
         self.wrap_request2(GetLabelsRequest::new(label_type))
             .map(|r| Ok(r.labels))
+    }
+
+    // ========================================================================
+    // Message API methods
+    // ========================================================================
+
+    /// Get messages with optional filtering.
+    pub fn get_messages(
+        &self,
+        filter: crate::domain::MessageFilter,
+    ) -> impl Sequence<Output = (Vec<crate::domain::MessageMetadata>, u32), Error = http::Error> + '_ {
+        self.wrap_request2(crate::requests::GetMessagesRequest::new(filter))
+            .map(|r| Ok((r.messages, r.total)))
+    }
+
+    /// Get messages in a specific label/folder.
+    pub fn get_messages_in_label(
+        &self,
+        label_id: &str,
+    ) -> impl Sequence<Output = (Vec<crate::domain::MessageMetadata>, u32), Error = http::Error> + '_ {
+        self.wrap_request2(crate::requests::GetMessagesRequest::for_label(label_id))
+            .map(|r| Ok((r.messages, r.total)))
+    }
+
+    /// Get a single message with full body content.
+    pub fn get_message<'a, 'b: 'a>(
+        &'b self,
+        id: &'a crate::domain::MessageId,
+    ) -> impl Sequence<Output = crate::domain::FullMessage, Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::GetMessageRequest::new(id))
+            .map(|r| Ok(r.message))
+    }
+
+    /// Mark messages as read.
+    pub fn mark_messages_read<'a, 'b: 'a>(
+        &'b self,
+        ids: &'a [crate::domain::MessageId],
+    ) -> impl Sequence<Output = (), Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::MarkMessagesReadRequest::new(ids))
+    }
+
+    /// Mark messages as unread.
+    pub fn mark_messages_unread<'a, 'b: 'a>(
+        &'b self,
+        ids: &'a [crate::domain::MessageId],
+    ) -> impl Sequence<Output = (), Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::MarkMessagesUnreadRequest::new(ids))
+    }
+
+    /// Add a label to messages.
+    pub fn label_messages<'a, 'b: 'a>(
+        &'b self,
+        label_id: &'a str,
+        ids: &'a [crate::domain::MessageId],
+    ) -> impl Sequence<Output = crate::requests::LabelMessagesResponse, Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::LabelMessagesRequest::new(label_id, ids))
+    }
+
+    /// Remove a label from messages.
+    pub fn unlabel_messages<'a, 'b: 'a>(
+        &'b self,
+        label_id: &'a str,
+        ids: &'a [crate::domain::MessageId],
+    ) -> impl Sequence<Output = crate::requests::LabelMessagesResponse, Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::UnlabelMessagesRequest::new(label_id, ids))
+    }
+
+    /// Permanently delete messages.
+    pub fn delete_messages<'a, 'b: 'a>(
+        &'b self,
+        ids: &'a [crate::domain::MessageId],
+    ) -> impl Sequence<Output = (), Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::DeleteMessagesRequest::new(ids))
+    }
+
+    /// Get message counts per label.
+    pub fn get_message_counts(
+        &self,
+    ) -> impl Sequence<Output = Vec<crate::domain::MessageCount>, Error = http::Error> + '_ {
+        self.wrap_request2(crate::requests::GetMessageCountsRequest)
+            .map(|r| Ok(r.counts))
+    }
+
+    /// Download an attachment by ID.
+    /// Returns the encrypted attachment data as raw bytes.
+    pub fn get_attachment<'a, 'b: 'a>(
+        &'b self,
+        attachment_id: &'a str,
+    ) -> impl Sequence<Output = Vec<u8>, Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::GetAttachmentRequest::new(attachment_id))
+    }
+
+    // ========================================================================
+    // Key API methods
+    // ========================================================================
+
+    /// Get the user's private keys.
+    ///
+    /// These keys are used to decrypt messages and verify signatures.
+    pub fn get_user_keys(&self) -> impl Sequence<Output = Keys, Error = http::Error> + '_ {
+        self.wrap_request2(GetUserKeysRequest)
+            .map(|r| Ok(r.keys))
+    }
+
+    /// Get keys for a specific address.
+    ///
+    /// Address keys are used to encrypt/decrypt messages for specific email addresses.
+    pub fn get_address_keys<'a, 'b: 'a>(
+        &'b self,
+        address_id: &'a AddressId,
+    ) -> impl Sequence<Output = Keys, Error = http::Error> + 'a {
+        self.wrap_request2(GetAddressKeysRequest::new(address_id))
+            .map(|r| Ok(r.keys))
+    }
+
+    /// Get public keys for an email address.
+    ///
+    /// Returns the recipient's public keys and whether they are an internal or external recipient.
+    pub fn get_public_keys<'a, 'b: 'a>(
+        &'b self,
+        email: &'a str,
+    ) -> impl Sequence<Output = (PublicKeys, RecipientType), Error = http::Error> + 'a {
+        self.wrap_request2(GetPublicKeysRequest::new(email))
+            .map(|r| Ok((r.keys, r.recipient_type)))
+    }
+
+    /// Get all keys for all addresses and the user.
+    ///
+    /// This is a comprehensive endpoint that returns both user keys and all address keys
+    /// in a single request.
+    pub fn get_all_keys(
+        &self,
+    ) -> impl Sequence<
+        Output = (
+            UserKeys,
+            std::collections::HashMap<String, AddressKeys>,
+        ),
+        Error = http::Error,
+    > + '_ {
+        self.wrap_request2(GetAllKeysRequest)
+            .map(|r| Ok((r.user_keys, r.address_keys)))
+    }
+
+    // ========================================================================
+    // Message sending API methods
+    // ========================================================================
+
+    /// Create a new draft message.
+    ///
+    /// This creates a draft that can be edited before sending. The draft is stored
+    /// on the server and assigned a message ID.
+    pub fn create_draft<'a, 'b: 'a>(
+        &'b self,
+        draft: &'a crate::domain::DraftMessage,
+    ) -> impl Sequence<Output = crate::domain::FullMessage, Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::CreateDraftRequest::new(draft))
+            .map(|r| Ok(r.message))
+    }
+
+    /// Update an existing draft message.
+    ///
+    /// This replaces the content of an existing draft. The draft must have been
+    /// created previously using `create_draft`.
+    pub fn update_draft<'a, 'b: 'a>(
+        &'b self,
+        id: &'a crate::domain::MessageId,
+        draft: &'a crate::domain::DraftMessage,
+    ) -> impl Sequence<Output = crate::domain::FullMessage, Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::UpdateDraftRequest::new(id, draft))
+            .map(|r| Ok(r.message))
+    }
+
+    /// Send a draft message.
+    ///
+    /// This sends a previously created draft to its recipients. The `packages`
+    /// parameter contains the encrypted message body and session keys for each
+    /// recipient type (internal/external).
+    ///
+    /// Note: Message encryption must be performed before calling this method.
+    /// Each package should contain the encrypted body and key packets for the
+    /// recipient addresses.
+    pub fn send_message<'a, 'b: 'a>(
+        &'b self,
+        id: &'a crate::domain::MessageId,
+        packages: &'a [crate::domain::MessagePackage],
+    ) -> impl Sequence<Output = crate::domain::MessageId, Error = http::Error> + 'a {
+        self.wrap_request2(crate::requests::SendMessageRequest::new(id, packages))
+            .map(|r| Ok(r.sent.id))
     }
 
     #[inline(always)]
